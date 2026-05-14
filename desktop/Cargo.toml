@@ -7,4 +7,6 @@ edition = "2024"
 debug = ["iced/hot"]
 
 [dependencies]
+corelib = { path = "../corelib" }
 iced = { version = "0.14.0", features = ["canvas", "advanced"] }
+rusqlite = "0.39.0"
