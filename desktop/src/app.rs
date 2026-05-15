@@ -18,11 +18,11 @@ impl<Message> canvas::Program<Message> for Map {
 
     fn draw(
         &self,
-        state: &Self::State,
+        _state: &Self::State,
         renderer: &Renderer,
-        theme: &Theme,
+        _theme: &Theme,
         bounds: iced::Rectangle,
-        cursor: mouse::Cursor,
+        _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry<Renderer>> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
