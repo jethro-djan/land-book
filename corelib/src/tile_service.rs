@@ -4,6 +4,11 @@ use std::io::Read;
 use prost::Message;
 
 use crate::vector_tile::Tile;
+use crate::vector_tile::tile::{Feature, GeomType};
+
+const MOVE_TO: i32 = 1;
+const LINE_TO: i32 = 2;
+const CLOSE_PATH: i32 = 7;
 
 pub struct TileWithoutData {
     pub z: u32,
@@ -52,12 +57,15 @@ impl MbTiles {
         })
     }
 
+    pub fn decode_tile_with_data(tile: TileWithData) -> Tile {
+        let mut decoder = GzDecoder::new(tile.data.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+
+        Tile::decode(decompressed.as_slice()).unwrap()
+    }
 }
 
-pub fn decode_tile_with_data(tile: TileWithData) -> Tile {
-    let mut decoder = GzDecoder::new(tile.data.as_slice());
-    let mut decompressed = Vec::new();
-    decoder.read_to_end(&mut decompressed).unwrap();
 
-    Tile::decode(decompressed.as_slice()).unwrap()
+pub fn decode_geometry(feature: &Feature) -> Option<GeomType> {
 }
