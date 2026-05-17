@@ -1,10 +1,10 @@
-use rusqlite::{Connection, Result, params};
 use flate2::read::GzDecoder;
+use rusqlite::{Connection, Result, params};
 use std::io::Read;
 use prost::Message;
 
-use crate::vector_tile::Tile;
-use crate::vector_tile::tile::{Feature, GeomType};
+use crate::corelib::vector_tile::Tile;
+use crate::corelib::vector_tile::tile::{Feature, GeomType};
 
 const MOVE_TO: u32 = 1;
 const LINE_TO: u32 = 2;
@@ -23,7 +23,7 @@ pub struct TileWithData {
     pub data: Vec<u8>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GeometryType {
     Point(Vec<(i32, i32)>),
     LineString(Vec<Vec<(i32, i32)>>),
@@ -46,7 +46,7 @@ impl TryFrom<u32> for FeatureCommand {
             MOVE_TO => Ok(Self::MoveTo),
             LINE_TO => Ok(Self::LineTo),
             CLOSE_PATH => Ok(Self::ClosePath),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
@@ -63,41 +63,40 @@ impl MbTiles {
 
     pub fn get_tile(&self, tile: TileWithoutData) -> Result<TileWithData> {
         // Flip y from slippy map convention to TMS convention
-        let tms_y = (1u32 << tile.z).wrapping_sub(1).wrapping_sub(tile.y);
+        // let tms_y = (1u32 << tile.z).wrapping_sub(1).wrapping_sub(tile.y);
 
         let mut stmt = self.conn.prepare_cached(
             r#"SELECT tile_data FROM tiles
                 WHERE zoom_level = ?1
                 AND tile_column = ?2
                 AND tile_row = ?3
-            "#
+            "#,
         )?;
 
-        let data = stmt.query_row(params![tile.z, tile.x, tms_y], |row| {
+        let data = stmt.query_row(params![tile.z, tile.x, tile.y], |row| {
             row.get::<_, Vec<u8>>(0)
         })?;
 
         Ok(TileWithData {
             z: tile.z,
             x: tile.x,
-            y: tms_y,
+            y: tile.y,
             data,
         })
     }
+}
 
-    pub fn decode_tile_with_data(tile: TileWithData) -> Tile {
-        let mut decoder = GzDecoder::new(tile.data.as_slice());
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
+pub fn decode_tile(tile: TileWithData) -> Tile {
+    let mut decoder = GzDecoder::new(tile.data.as_slice());
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed).unwrap();
 
-        Tile::decode(decompressed.as_slice()).unwrap()
-    }
+    Tile::decode(decompressed.as_slice()).unwrap()
 }
 
 fn zigzag_decode(n: u32) -> i32 {
     ((n >> 1) as i32) ^ -((n & 1) as i32)
 }
-
 
 pub fn decode_geometry(feature: &Feature) -> Option<GeometryType> {
     let geom = &feature.geometry;
@@ -128,7 +127,7 @@ pub fn decode_geometry(feature: &Feature) -> Option<GeometryType> {
                             points.push((cursor_x, cursor_y));
                         }
                     }
-                    FeatureCommand::LineTo | FeatureCommand::ClosePath => return None
+                    FeatureCommand::LineTo | FeatureCommand::ClosePath => return None,
                 }
             }
 
@@ -162,13 +161,13 @@ pub fn decode_geometry(feature: &Feature) -> Option<GeometryType> {
                             let dx = zigzag_decode(geom[i]);
                             let dy = zigzag_decode(geom[i + 1]);
                             i += 2;
-                                
+
                             cursor_x += dx;
                             cursor_y += dy;
                             current_line.push((cursor_x, cursor_y));
                         }
                     }
-                    FeatureCommand::ClosePath => return None
+                    FeatureCommand::ClosePath => return None,
                 }
             }
 
@@ -186,6 +185,10 @@ pub fn decode_geometry(feature: &Feature) -> Option<GeometryType> {
 
                 match command {
                     FeatureCommand::MoveTo => {
+                        if i + 1 >= geom.len() {
+                            return None;
+                        }
+
                         let dx = zigzag_decode(geom[i]);
                         let dy = zigzag_decode(geom[i + 1]);
                         i += 2;
@@ -218,12 +221,19 @@ pub fn decode_geometry(feature: &Feature) -> Option<GeometryType> {
 
             Some(GeometryType::Polygon(rings))
         }
-        GeomType::Unknown => None
+        GeomType::Unknown => None,
     }
 }
 
+pub fn extract_geometries(tile: Tile) -> Vec<GeometryType> {
+    tile.layers
+        .iter()
+        .flat_map(|layer| layer.features.iter())
+        .filter_map(|feature| decode_geometry(feature))
+        .collect()
+}
 
-// TESTS 
+// TESTS
 
 #[cfg(test)]
 mod tests {
@@ -276,11 +286,7 @@ mod tests {
     fn decode_single_point_geometry() {
         let feature = feature(
             GeomType::Point,
-            vec![
-                cmd(MOVE_TO, 1),
-                zigzag_encode(10),
-                zigzag_encode(15),
-            ],
+            vec![cmd(MOVE_TO, 1), zigzag_encode(10), zigzag_encode(15)],
         );
 
         assert_eq!(
@@ -306,11 +312,7 @@ mod tests {
 
         assert_eq!(
             decode_geometry(&feature),
-            Some(GeometryType::Point(vec![
-                (10, 15),
-                (15, 12),
-                (13, 20),
-            ]))
+            Some(GeometryType::Point(vec![(10, 15), (15, 12), (13, 20),]))
         );
     }
 
@@ -318,11 +320,7 @@ mod tests {
     fn point_geometry_rejects_line_to_command() {
         let feature = feature(
             GeomType::Point,
-            vec![
-                cmd(LINE_TO, 1),
-                zigzag_encode(10),
-                zigzag_encode(15),
-            ],
+            vec![cmd(LINE_TO, 1), zigzag_encode(10), zigzag_encode(15)],
         );
 
         assert_eq!(decode_geometry(&feature), None);
@@ -330,10 +328,7 @@ mod tests {
 
     #[test]
     fn point_geometry_rejects_close_path_command() {
-        let feature = feature(
-            GeomType::Point,
-            vec![cmd(CLOSE_PATH, 1)],
-        );
+        let feature = feature(GeomType::Point, vec![cmd(CLOSE_PATH, 1)]);
 
         assert_eq!(decode_geometry(&feature), None);
     }
@@ -346,7 +341,6 @@ mod tests {
                 cmd(MOVE_TO, 1),
                 zigzag_encode(10),
                 zigzag_encode(15),
-
                 cmd(LINE_TO, 2),
                 zigzag_encode(5),
                 zigzag_encode(0),
@@ -357,22 +351,17 @@ mod tests {
 
         assert_eq!(
             decode_geometry(&feature),
-            Some(GeometryType::LineString(vec![
-                vec![
-                    (10, 15),
-                    (15, 15),
-                    (12, 19),
-                ],
-            ]))
+            Some(GeometryType::LineString(vec![vec![
+                (10, 15),
+                (15, 15),
+                (12, 19),
+            ],]))
         );
     }
 
     #[test]
     fn linestring_geometry_rejects_close_path_command() {
-        let feature = feature(
-            GeomType::Linestring,
-            vec![cmd(CLOSE_PATH, 1)],
-        );
+        let feature = feature(GeomType::Linestring, vec![cmd(CLOSE_PATH, 1)]);
 
         assert_eq!(decode_geometry(&feature), None);
     }

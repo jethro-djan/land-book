@@ -6,4 +6,4 @@ pub mod corelib {
     }
 }
 
-use corelib::vector_tile;
+// use corelib::vector_tile;

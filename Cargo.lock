@@ -706,6 +706,7 @@ version = "0.1.0"
 dependencies = [
  "corelib",
  "iced",
+ "rusqlite",
 ]
 
 [[package]]
