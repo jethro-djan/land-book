@@ -2,6 +2,7 @@ use flate2::read::GzDecoder;
 use prost::Message;
 use rusqlite::{Connection, Result, params};
 use std::io::Read;
+use std::sync::{Arc, Mutex};
 
 use crate::corelib::vector_tile::Tile;
 use crate::corelib::vector_tile::tile::{Feature, GeomType};
@@ -53,21 +54,22 @@ impl TryFrom<u32> for FeatureCommand {
     }
 }
 
+#[derive(Clone)]
 pub struct MbTiles {
-    conn: Connection,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl MbTiles {
     pub fn open_local(path: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 
     pub fn get_tile(&self, tile: TileWithoutData) -> Result<TileWithData> {
-        // Flip y from slippy map convention to TMS convention
-        // let tms_y = (1u32 << tile.z).wrapping_sub(1).wrapping_sub(tile.y);
-
-        let mut stmt = self.conn.prepare_cached(
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
             r#"SELECT tile_data FROM tiles
                 WHERE zoom_level = ?1
                 AND tile_column = ?2
@@ -91,7 +93,8 @@ impl MbTiles {
         // Flip y from slippy map convention to TMS convention
         // let tms_y = (1u32 << tile.z).wrapping_sub(1).wrapping_sub(tile.y);
 
-        let mut stmt = self.conn.prepare_cached(
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
             r#"SELECT 
                     zoom_level, tile_column, tile_row, tile_data 
                 FROM tiles
@@ -122,7 +125,8 @@ impl MbTiles {
         y_min: u32,
         y_max: u32,
     ) -> Result<Vec<TileWithData>> {
-        let mut stmt = self.conn.prepare_cached(
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare_cached(
             r#"SELECT zoom_level, tile_column, tile_row, tile_data 
                 FROM tiles
                 WHERE zoom_level = ?1
@@ -145,7 +149,6 @@ impl MbTiles {
 
         Ok(tiles)
     }
-
 }
 
 pub fn decode_tile(tile: &TileWithData) -> Tile {

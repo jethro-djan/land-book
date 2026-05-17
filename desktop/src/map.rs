@@ -1,9 +1,8 @@
-use corelib::tile_service::{
-    GeometryType, MbTiles, decode_tile, extract_geometries,
-};
-use iced::widget::{canvas, canvas::Path, column, container, slider, Action};
+use corelib::tile_service::{GeometryType, MbTiles, decode_tile, extract_geometries};
+use iced::widget::{Action, canvas, canvas::Path, column, container, slider};
 use iced::{Color, Element, Length, Point, Renderer, Task, Theme, Vector, mouse};
 
+#[derive(Clone, Debug)]
 pub struct TileGeometries {
     pub tile_x: u32,
     pub tile_y: u32,
@@ -17,7 +16,10 @@ pub struct Map {
     pub zoom: u32,
     pub offset: Vector,
     pub center_tile: (u32, u32),
+    pub loaded_center: (u32, u32),
     pub window_radius: u32,
+    pub visible_tile_count: f32,
+    pub loading: bool,
     pub cached_tile_pixel_size: std::cell::Cell<f32>,
 }
 
@@ -41,11 +43,9 @@ impl Map {
         let tile_dy = tile_y as i64 - min_ty as i64;
 
         for &(lx, ly) in points {
-            let gx = tile_dx as f32 * tile_pixel_size
-                + (lx as f32 / self.extent * tile_pixel_size);
+            let gx = tile_dx as f32 * tile_pixel_size + (lx as f32 / self.extent * tile_pixel_size);
 
-            let gy = tile_dy as f32 * tile_pixel_size
-                + (ly as f32 / self.extent * tile_pixel_size);
+            let gy = tile_dy as f32 * tile_pixel_size + (ly as f32 / self.extent * tile_pixel_size);
 
             let pt = Point::new(gx, gy);
 
@@ -53,34 +53,6 @@ impl Map {
             frame.fill(&circle, Color::BLACK);
         }
     }
-
-    // pub fn draw_points(
-    //     &self,
-    //     frame: &mut canvas::Frame<Renderer>,
-    //     points: &[(i32, i32)],
-    //     tile_x: u32,
-    //     tile_y: u32,
-    //     min_tx: u32,
-    //     min_ty: u32,
-    //     tile_pixel_size: f32,
-    // ) {
-    //     for &(lx, ly) in points {
-    //     let gx = (tile_x as i64 - min_tx as i64) as f32 * tile_pixel_size
-    //         + (lx as f32 / self.extent * tile_pixel_size);
-
-    //     let gy = (tile_y as i64 - min_ty as i64) as f32 * tile_pixel_size
-    //         + (ly as f32 / self.extent * tile_pixel_size);
-    //         // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
-    //         //     + (lx as f32 / self.extent * tile_pixel_size);
-    //         // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
-    //         //     + (ly as f32 / self.extent * tile_pixel_size);
-
-    //         let pt = Point::new(gx, gy);
-
-    //         let circle = Path::circle(pt, 2.0);
-    //         frame.fill(&circle, Color::BLACK);
-    //     }
-    // }
 
     pub fn draw_lines(
         &self,
@@ -106,10 +78,6 @@ impl Map {
                 let gy = tile_dy as f32 * tile_pixel_size
                     + (first.1 as f32 / self.extent * tile_pixel_size);
 
-                // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
-                //     + (first.0 as f32 / self.extent * tile_pixel_size);
-                // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
-                //     + (first.1 as f32 / self.extent * tile_pixel_size);
                 builder.move_to(Point::new(gx, gy));
 
                 for &point in points {
@@ -119,10 +87,6 @@ impl Map {
                     let gy = tile_dy as f32 * tile_pixel_size
                         + (point.1 as f32 / self.extent * tile_pixel_size);
 
-                    // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
-                    //     + (point.0 as f32 / self.extent * tile_pixel_size);
-                    // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
-                    //     + (point.1 as f32 / self.extent * tile_pixel_size);
                     builder.line_to(Point::new(gx, gy));
                 }
             }
@@ -161,10 +125,6 @@ impl Map {
                 let gy = tile_dy as f32 * tile_pixel_size
                     + (first.1 as f32 / self.extent * tile_pixel_size);
 
-                // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
-                //     + (first.0 as f32 / self.extent * tile_pixel_size);
-                // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
-                //     + (first.1 as f32 / self.extent * tile_pixel_size);
                 builder.move_to(Point::new(gx, gy));
 
                 for &point in points {
@@ -174,10 +134,6 @@ impl Map {
                     let gy = tile_dy as f32 * tile_pixel_size
                         + (point.1 as f32 / self.extent * tile_pixel_size);
 
-                    // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
-                    //     + (point.0 as f32 / self.extent * tile_pixel_size);
-                    // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
-                    //     + (point.1 as f32 / self.extent * tile_pixel_size);
                     builder.line_to(Point::new(gx, gy));
                 }
 
@@ -185,7 +141,6 @@ impl Map {
             }
 
             let path = builder.build();
-            // frame.fill(&path, Color::from_rgb(0.2, 0.7, 0.9));
             frame.fill(&path, Color::WHITE);
             frame.stroke(
                 &path,
@@ -217,19 +172,10 @@ impl canvas::Program<Message> for Map {
         let min_tx = self.center_tile.0.saturating_sub(self.window_radius);
         let min_ty = self.center_tile.1.saturating_sub(self.window_radius);
 
-        // let min_tx = self.tiles.iter().map(|t| t.tile_x).min().unwrap();
-        let max_tx = self.tiles.iter().map(|t| t.tile_x).max().unwrap();
-        // let min_ty = self.tiles.iter().map(|t| t.tile_y).min().unwrap();
-        let max_ty = self.tiles.iter().map(|t| t.tile_y).max().unwrap();
-
         let tile_count_x = (self.window_radius * 2 + 1) as f32;
         let tile_count_y = (self.window_radius * 2 + 1) as f32;
 
-        // let tile_count_x = (max_tx - min_tx + 1) as f32;
-        // let tile_count_y = (max_ty - min_ty + 1) as f32;
-
-        let tile_pixel_size = 
-            (bounds.width / tile_count_x).min(bounds.height / tile_count_y);
+        let tile_pixel_size = (bounds.width / tile_count_x).min(bounds.height / tile_count_y);
         self.cached_tile_pixel_size.set(tile_pixel_size);
 
         frame.translate(self.offset);
@@ -293,14 +239,12 @@ impl canvas::Program<Message> for Map {
             }
             iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if let Some(origin) = state.dragging {
-                    let delta = Vector::new(
-                        cursor_position.x - origin.x,
-                        cursor_position.y - origin.y,
-                    );
+                    let delta =
+                        Vector::new(cursor_position.x - origin.x, cursor_position.y - origin.y);
                     state.dragging = Some(cursor_position);
                     Some(Action::publish(Message::Panned(delta)))
                 } else {
-                    None 
+                    None
                 }
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
@@ -312,11 +256,11 @@ impl canvas::Program<Message> for Map {
     }
 
     fn mouse_interaction(
-            &self,
-            state: &Self::State,
-            _bounds: iced::Rectangle,
-            _cursor: iced::advanced::mouse::Cursor,
-        ) -> iced::advanced::mouse::Interaction {
+        &self,
+        state: &Self::State,
+        _bounds: iced::Rectangle,
+        _cursor: iced::advanced::mouse::Cursor,
+    ) -> iced::advanced::mouse::Interaction {
         if state.dragging.is_some() {
             mouse::Interaction::Grabbing
         } else {
@@ -347,9 +291,9 @@ pub fn get_all_geometries(db: &MbTiles, zoom: u32) -> Vec<TileGeometries> {
 }
 
 pub fn load_window(
-    db: &MbTiles, 
-    zoom: u32, 
-    center: (u32, u32), 
+    db: &MbTiles,
+    zoom: u32,
+    center: (u32, u32),
     radius: u32,
 ) -> Vec<TileGeometries> {
     let (cx, cy) = center;
@@ -368,7 +312,11 @@ pub fn load_window(
             if geometries.is_empty() {
                 None
             } else {
-                Some(TileGeometries { tile_x: tx, tile_y: ty, geometries })
+                Some(TileGeometries {
+                    tile_x: tx,
+                    tile_y: ty,
+                    geometries,
+                })
             }
         })
         .collect()
@@ -395,10 +343,20 @@ pub fn center_existing_tile_at_zoom(db: &MbTiles, zoom: u32) -> Option<(u32, u32
         .map(|t| (t.x, t.y))
 }
 
+pub async fn load_window_async(
+    db: MbTiles,
+    zoom: u32,
+    center: (u32, u32),
+    radius: u32,
+) -> Vec<TileGeometries> {
+    load_window(&db, zoom, center, radius)
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     ZoomLevelChanged(u32),
     Panned(Vector),
+    TilesLoaded(Vec<TileGeometries>),
 }
 
 pub fn update(state: &mut Map, msg: Message) -> Task<Message> {
@@ -409,50 +367,65 @@ pub fn update(state: &mut Map, msg: Message) -> Task<Message> {
 
             state.offset = Vector::new(0.0, 0.0);
 
-            state.center_tile = center_existing_tile_at_zoom(&state.db, zoom)
-                .unwrap_or(state.center_tile);
+            state.center_tile =
+                center_existing_tile_at_zoom(&state.db, zoom).unwrap_or(state.center_tile);
 
-            state.tiles = load_window(
-                &state.db, 
-                state.zoom, 
-                state.center_tile, 
-                state.window_radius,
-            );
-
-            Task::none()
+            Task::perform(
+                load_window_async(
+                    state.db.clone(),
+                    state.zoom,
+                    state.center_tile,
+                    state.window_radius,
+                ),
+                Message::TilesLoaded,
+            )
         }
         Message::Panned(delta) => {
             state.offset.x += delta.x;
             state.offset.y += delta.y;
 
-            let tile_px = &state.cached_tile_pixel_size;
-
-            let mut shifted = false;
-
-            if state.offset.x > tile_px.get() {
-                state.center_tile.0 = state.center_tile.0.saturating_sub(1);
-                state.offset.x -= tile_px.get();
-                shifted = true
-            } else if state.offset.x < -tile_px.get() {
-                state.center_tile.0 += 1;
-                state.offset.x += tile_px.get();
-                shifted = true;
+            let tile_px = state.cached_tile_pixel_size.get();
+            if tile_px == 0.0 {
+                return Task::none();
             }
 
-            if state.offset.y > tile_px.get() {
-                state.center_tile.1 = state.center_tile.1.saturating_sub(1);
-                state.offset.y -= tile_px.get();
-                shifted = true;
-            } else if state.offset.y < -tile_px.get() {
-                state.center_tile.1 += 1;
-                state.offset.y += tile_px.get();
-                shifted = true;
+            // Convert accumulated offset into whole tile shifts
+            let shift_x = (state.offset.x / tile_px).floor() as i64;
+            let shift_y = (state.offset.y / tile_px).floor() as i64;
+
+            if shift_x != 0 || shift_y != 0 {
+                state.offset.x -= shift_x as f32 * tile_px;
+                state.offset.y -= shift_y as f32 * tile_px;
+
+                state.center_tile.0 = (state.center_tile.0 as i64 - shift_x).max(0) as u32;
+                state.center_tile.1 = (state.center_tile.1 as i64 - shift_y).max(0) as u32;
+
+                let dx = state.center_tile.0 as i64 - state.loaded_center.0 as i64;
+                let dy = state.center_tile.1 as i64 - state.loaded_center.1 as i64;
+                let threshold = (state.window_radius / 2).max(1) as i64;
+
+                if (dx.abs() > threshold || dy.abs() > threshold) && !state.loading {
+                    state.loading = true;
+                    state.loaded_center = state.center_tile;
+
+                    return Task::perform(
+                        load_window_async(
+                            state.db.clone(),
+                            state.zoom,
+                            state.center_tile,
+                            state.window_radius,
+                        ),
+                        Message::TilesLoaded,
+                    );
+
+                }
             }
 
-            if shifted {
-                state.tiles =
-                load_window(&state.db, state.zoom, state.center_tile, state.window_radius);
-            }
+            Task::none()
+        }
+        Message::TilesLoaded(tiles) => {
+            state.tiles = tiles;
+            state.loading = false;
             Task::none()
         }
     }
