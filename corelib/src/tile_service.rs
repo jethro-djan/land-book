@@ -1,7 +1,7 @@
 use flate2::read::GzDecoder;
+use prost::Message;
 use rusqlite::{Connection, Result, params};
 use std::io::Read;
-use prost::Message;
 
 use crate::corelib::vector_tile::Tile;
 use crate::corelib::vector_tile::tile::{Feature, GeomType};
@@ -99,16 +99,17 @@ impl MbTiles {
             "#,
         )?;
 
-        let tiles = stmt.query_map(params![z], |row| {
-            Ok(TileWithData {
-                z: row.get(0)?,
-                x: row.get(1)?,
-                y: row.get(2)?,
-                data: row.get(3)?,
-            })
-        })?
-        .filter_map(|r| r.ok())
-        .collect();
+        let tiles = stmt
+            .query_map(params![z], |row| {
+                Ok(TileWithData {
+                    z: row.get(0)?,
+                    x: row.get(1)?,
+                    y: row.get(2)?,
+                    data: row.get(3)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
 
         Ok(tiles)
     }

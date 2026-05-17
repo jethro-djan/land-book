@@ -1,5 +1,5 @@
+use iced::widget::{column, container, text};
 use iced::{Element, Length, Task, Theme};
-use iced::widget::{text, container, column};
 
 pub struct Sidebar {
     pub width: f32,
@@ -13,7 +13,7 @@ pub enum Message {
 
 pub fn update(state: &mut Sidebar, msg: Message) -> Task<Message> {
     match msg {
-        Message::Minimise => Task::none()
+        Message::Minimise => Task::none(),
     }
 }
 

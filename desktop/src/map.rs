@@ -1,6 +1,8 @@
-use corelib::tile_service::{GeometryType, MbTiles, TileWithoutData, decode_tile, extract_geometries};
-use iced::{Color, Element, Length, Point, Renderer, Task, Theme};
-use iced::widget::{canvas, container, canvas::Path, slider, column};
+use corelib::tile_service::{
+    GeometryType, MbTiles, decode_tile, extract_geometries,
+};
+use iced::widget::{canvas, canvas::Path, column, container, slider, Action};
+use iced::{Color, Element, Length, Point, Renderer, Task, Theme, Vector, mouse};
 
 pub struct TileGeometries {
     pub tile_x: u32,
@@ -13,14 +15,19 @@ pub struct Map {
     pub tiles: Vec<TileGeometries>,
     pub extent: f32,
     pub zoom: u32,
+    pub offset: Vector,
+}
+
+#[derive(Default)]
+pub struct MapCanvasState {
+    pub dragging: Option<Point>,
 }
 
 impl Map {
-
     pub fn draw_points(
-        &self, 
-        frame: &mut canvas::Frame<Renderer>, 
-        points: &[(i32, i32)], 
+        &self,
+        frame: &mut canvas::Frame<Renderer>,
+        points: &[(i32, i32)],
         tile_x: u32,
         tile_y: u32,
         min_tx: u32,
@@ -39,23 +46,107 @@ impl Map {
             frame.fill(&circle, Color::BLACK);
         }
     }
+
+    pub fn draw_lines(
+        &self,
+        frame: &mut canvas::Frame<Renderer>,
+        lines: &[Vec<(i32, i32)>],
+        tile_x: u32,
+        tile_y: u32,
+        min_tx: u32,
+        min_ty: u32,
+        tile_pixel_size: f32,
+    ) {
+        for line in lines {
+            let mut builder = canvas::path::Builder::new();
+            let mut points = line.iter();
+
+            if let Some(&first) = points.next() {
+                let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                    + (first.0 as f32 / self.extent * tile_pixel_size);
+                let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                    + (first.1 as f32 / self.extent * tile_pixel_size);
+                builder.move_to(Point::new(gx, gy));
+
+                for &point in points {
+                    let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                        + (point.0 as f32 / self.extent * tile_pixel_size);
+                    let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                        + (point.1 as f32 / self.extent * tile_pixel_size);
+                    builder.line_to(Point::new(gx, gy));
+                }
+            }
+
+            let path = builder.build();
+            frame.stroke(
+                &path,
+                canvas::Stroke::default()
+                    .with_color(Color::BLACK)
+                    .with_width(1.0),
+            );
+        }
+    }
+
+    pub fn draw_polygons(
+        &self,
+        frame: &mut canvas::Frame<Renderer>,
+        rings: &[Vec<(i32, i32)>],
+        tile_x: u32,
+        tile_y: u32,
+        min_tx: u32,
+        min_ty: u32,
+        tile_pixel_size: f32,
+    ) {
+        for ring in rings {
+            let mut builder = canvas::path::Builder::new();
+            let mut points = ring.iter();
+
+            if let Some(&first) = points.next() {
+                let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                    + (first.0 as f32 / self.extent * tile_pixel_size);
+                let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                    + (first.1 as f32 / self.extent * tile_pixel_size);
+                builder.move_to(Point::new(gx, gy));
+
+                for &point in points {
+                    let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                        + (point.0 as f32 / self.extent * tile_pixel_size);
+                    let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                        + (point.1 as f32 / self.extent * tile_pixel_size);
+                    builder.line_to(Point::new(gx, gy));
+                }
+
+                builder.close();
+            }
+
+            let path = builder.build();
+            // frame.fill(&path, Color::from_rgb(0.2, 0.7, 0.9));
+            frame.fill(&path, Color::WHITE);
+            frame.stroke(
+                &path,
+                canvas::Stroke::default()
+                    .with_color(Color::BLACK)
+                    .with_width(1.0),
+            );
+        }
+    }
 }
 
-impl<Message> canvas::Program<Message> for Map {
-    type State = ();
+impl canvas::Program<Message> for Map {
+    type State = MapCanvasState;
 
     fn draw(
-            &self,
-            _state: &Self::State,
-            renderer: &Renderer,
-            _theme: &Theme,
-            bounds: iced::Rectangle,
-            _cursor: iced::advanced::mouse::Cursor,
-        ) -> Vec<canvas::Geometry<Renderer>> {
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: iced::Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry<Renderer>> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
         if self.tiles.is_empty() {
-            return vec![frame.into_geometry()]
+            return vec![frame.into_geometry()];
         }
 
         let min_tx = self.tiles.iter().map(|t| t.tile_x).min().unwrap();
@@ -66,16 +157,17 @@ impl<Message> canvas::Program<Message> for Map {
         let tile_count_x = (max_tx - min_tx + 1) as f32;
         let tile_count_y = (max_ty - min_ty + 1) as f32;
 
-        let tile_pixel_size = (bounds.width / tile_count_x)
-            .min(bounds.height / tile_count_y);
+        let tile_pixel_size = (bounds.width / tile_count_x).min(bounds.height / tile_count_y);
+
+        frame.translate(self.offset);
 
         for tile in &self.tiles {
             for geometry in &tile.geometries {
                 match geometry {
                     GeometryType::Point(points) => {
                         self.draw_points(
-                            &mut frame, 
-                            points, 
+                            &mut frame,
+                            points,
                             tile.tile_x,
                             tile.tile_y,
                             min_tx,
@@ -83,15 +175,82 @@ impl<Message> canvas::Program<Message> for Map {
                             tile_pixel_size,
                         );
                     }
-                    _ => (),
+                    GeometryType::LineString(lines) => {
+                        self.draw_lines(
+                            &mut frame,
+                            lines,
+                            tile.tile_x,
+                            tile.tile_y,
+                            min_tx,
+                            min_ty,
+                            tile_pixel_size,
+                        );
+                    }
+                    GeometryType::Polygon(rings) => {
+                        self.draw_polygons(
+                            &mut frame,
+                            rings,
+                            tile.tile_x,
+                            tile.tile_y,
+                            min_tx,
+                            min_ty,
+                            tile_pixel_size,
+                        );
+                    }
                 }
             }
         }
 
         vec![frame.into_geometry()]
     }
-}
 
+    fn update(
+        &self,
+        state: &mut MapCanvasState,
+        event: &iced::Event,
+        bounds: iced::Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<Action<Message>> {
+        let cursor_position = cursor.position_in(bounds)?;
+
+        match event {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                state.dragging = Some(cursor_position);
+                None
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if let Some(origin) = state.dragging {
+                    let delta = Vector::new(
+                        cursor_position.x - origin.x,
+                        cursor_position.y - origin.y,
+                    );
+                    state.dragging = Some(cursor_position);
+                    Some(Action::publish(Message::Panned(delta)))
+                } else {
+                    None 
+                }
+            }
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                state.dragging = Some(cursor_position);
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn mouse_interaction(
+            &self,
+            state: &Self::State,
+            _bounds: iced::Rectangle,
+            _cursor: iced::advanced::mouse::Cursor,
+        ) -> iced::advanced::mouse::Interaction {
+        if state.dragging.is_some() {
+            mouse::Interaction::Grabbing
+        } else {
+            mouse::Interaction::Grab
+        }
+    }
+}
 
 pub fn get_all_geometries(db: &MbTiles, zoom: u32) -> Vec<TileGeometries> {
     db.get_tiles_at_zoom(zoom)
@@ -102,9 +261,13 @@ pub fn get_all_geometries(db: &MbTiles, zoom: u32) -> Vec<TileGeometries> {
             let decoded = decode_tile(&tile);
             let geometries = extract_geometries(decoded);
             if geometries.is_empty() {
-                None 
+                None
             } else {
-                Some(TileGeometries { tile_x: tx, tile_y: ty, geometries })
+                Some(TileGeometries {
+                    tile_x: tx,
+                    tile_y: ty,
+                    geometries,
+                })
             }
         })
         .collect()
@@ -113,8 +276,7 @@ pub fn get_all_geometries(db: &MbTiles, zoom: u32) -> Vec<TileGeometries> {
 #[derive(Debug, Clone)]
 pub enum Message {
     ZoomLevelChanged(u32),
-    Pan,
-    Zoom,
+    Panned(Vector),
 }
 
 pub fn update(state: &mut Map, msg: Message) -> Task<Message> {
@@ -122,25 +284,28 @@ pub fn update(state: &mut Map, msg: Message) -> Task<Message> {
         Message::ZoomLevelChanged(zoom) => {
             state.zoom = zoom;
             state.tiles = get_all_geometries(&state.db, zoom);
+
+            state.offset = Vector::new(0.0, 0.0);
             Task::none()
         }
-        Message::Pan => Task::none(),
-        Message::Zoom => Task::none(),
+        Message::Panned(delta) => {
+            state.offset.x = delta.x;
+            state.offset.y = delta.y;
+            Task::none()
+        }
     }
 }
 
 pub fn view(state: &Map) -> Element<'_, Message> {
-    container(
-        column![
-            canvas(state).width(Length::Fill).height(Length::Fill),
-            slider(1..=14, state.zoom, Message::ZoomLevelChanged).step(1 as u32),
-        ]
-    )
-        .center(Length::Fill)
-        .padding(30.0)
-        .style(|_theme: &Theme| container::Style {
-            background: Some(iced::Background::Color(Color::WHITE)),
-            ..Default::default()
-        })
-        .into()
+    container(column![
+        canvas(state).width(Length::Fill).height(Length::Fill),
+        slider(1..=14, state.zoom, Message::ZoomLevelChanged).step(1 as u32),
+    ])
+    .center(Length::Fill)
+    .padding(30.0)
+    .style(|_theme: &Theme| container::Style {
+        background: Some(iced::Background::Color(Color::WHITE)),
+        ..Default::default()
+    })
+    .into()
 }
