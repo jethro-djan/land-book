@@ -1,36 +1,57 @@
 use corelib::tile_service::{GeometryType, MbTiles, TileWithoutData, decode_tile, extract_geometries};
-use iced::{Color, Element, Length, Point, Rectangle, Renderer, Task, Theme};
+use iced::{Color, Element, Length, Point, Renderer, Task, Theme};
 use iced::widget::{canvas, container, canvas::Path};
+
+pub struct TileGeometries {
+    pub tile_x: u32,
+    pub tile_y: u32,
+    pub geometries: Vec<GeometryType>,
+}
 
 pub struct Map {
     pub db: MbTiles,
-    pub geometries: Vec<GeometryType>,
+    pub tiles: Vec<TileGeometries>,
     pub extent: f32,
+    pub zoom: u32,
 }
 
 impl Map {
-    pub fn get_geometries(&self) -> Vec<GeometryType> {
-        let raw = self.db.get_tile(TileWithoutData { z: 14, x: 8117, y: 8495 }).unwrap();
-        let tile = decode_tile(raw);
-        let geometries = extract_geometries(tile);
-
-        for g in &geometries {
-            if let GeometryType::Point(pts) = g {
-                println!("points: {:?}", pts);
-            }
-        }
-
-        geometries
+    pub fn get_all_geometries(&self) -> Vec<TileGeometries> {
+        self.db.get_tiles_at_zoom(self.zoom)
+            .unwrap()
+            .iter()
+            .filter_map(|tile| {
+                let (tx, ty) = (tile.x, tile.y);
+                let decoded = decode_tile(&tile);
+                let geometries = extract_geometries(decoded);
+                if geometries.is_empty() {
+                    None 
+                } else {
+                    Some(TileGeometries { tile_x: tx, tile_y: ty, geometries })
+                }
+            })
+            .collect()
     }
 
-    pub fn draw_points(&self, frame: &mut canvas::Frame<Renderer>, points: &[(i32, i32)], bounds: iced::Rectangle) {
-        for &point in points {
-            let x = point.0 as f32 / self.extent * bounds.width;
-            let y = point.1 as f32 / self.extent * bounds.height;
+    pub fn draw_points(
+        &self, 
+        frame: &mut canvas::Frame<Renderer>, 
+        points: &[(i32, i32)], 
+        tile_x: u32,
+        tile_y: u32,
+        min_tx: u32,
+        min_ty: u32,
+        tile_pixel_size: f32,
+    ) {
+        for &(lx, ly) in points {
+            let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                + (lx as f32 / self.extent * tile_pixel_size);
+            let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                + (ly as f32 / self.extent * tile_pixel_size);
 
-            let pt = Point::new(x, y);
+            let pt = Point::new(gx, gy);
+
             let circle = Path::circle(pt, 2.0);
-
             frame.fill(&circle, Color::BLACK);
         }
     }
@@ -49,14 +70,43 @@ impl<Message> canvas::Program<Message> for Map {
         ) -> Vec<canvas::Geometry<Renderer>> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
-        for geometry in self.geometries.iter() {
-            match geometry {
-                GeometryType::Point(points) => {
-                    self.draw_points(&mut frame, points, bounds);
+        if self.tiles.is_empty() {
+            return vec![frame.into_geometry()]
+        }
+
+        let min_tx = self.tiles.iter().map(|t| t.tile_x).min().unwrap();
+        let max_tx = self.tiles.iter().map(|t| t.tile_x).max().unwrap();
+        let min_ty = self.tiles.iter().map(|t| t.tile_y).min().unwrap();
+        let max_ty = self.tiles.iter().map(|t| t.tile_y).max().unwrap();
+
+        let tile_count_x = (max_tx - min_tx + 1) as f32;
+        let tile_count_y = (max_ty - min_ty + 1) as f32;
+
+        let tile_pixel_size = (bounds.width / tile_count_x)
+            .min(bounds.height / tile_count_y);
+
+        for tile in &self.tiles {
+            for geometry in &tile.geometries {
+                match geometry {
+                    GeometryType::Point(points) => {
+                        self.draw_points(
+                            &mut frame, 
+                            points, 
+                            tile.tile_x,
+                            tile.tile_y,
+                            min_tx,
+                            min_ty,
+                            tile_pixel_size,
+                        );
+                    }
+                    _ => (),
                 }
-                _ => (),
             }
         }
+
+        println!("tile_count_x: {}, tile_count_y: {}", tile_count_x, tile_count_y);
+        println!("tile_pixel_size: {}", tile_pixel_size);
+        println!("bounds: {:?}", bounds);
 
         vec![frame.into_geometry()]
     }
@@ -76,9 +126,9 @@ pub fn update(state: &mut Map, msg: Message) -> Task<Message> {
 }
 
 pub fn view(state: &Map) -> Element<'_, Message> {
-    container(canvas(state))
-        .height(Length::Fill)
-        .width(Length::Fill)
+    container(canvas(state).width(Length::Fill).height(Length::Fill))
+        .center(Length::Fill)
+        .padding(20.0)
         .style(|_theme: &Theme| container::Style {
             background: Some(iced::Background::Color(Color::WHITE)),
             ..Default::default()

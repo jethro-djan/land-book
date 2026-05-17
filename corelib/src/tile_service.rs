@@ -10,12 +10,14 @@ const MOVE_TO: u32 = 1;
 const LINE_TO: u32 = 2;
 const CLOSE_PATH: u32 = 7;
 
+#[derive(Clone)]
 pub struct TileWithoutData {
     pub z: u32,
     pub x: u32,
     pub y: u32,
 }
 
+#[derive(Clone)]
 pub struct TileWithData {
     pub z: u32,
     pub x: u32,
@@ -84,9 +86,35 @@ impl MbTiles {
             data,
         })
     }
+
+    pub fn get_tiles_at_zoom(&self, z: u32) -> Result<Vec<TileWithData>> {
+        // Flip y from slippy map convention to TMS convention
+        // let tms_y = (1u32 << tile.z).wrapping_sub(1).wrapping_sub(tile.y);
+
+        let mut stmt = self.conn.prepare_cached(
+            r#"SELECT 
+                    zoom_level, tile_column, tile_row, tile_data 
+                FROM tiles
+                WHERE zoom_level = ?1
+            "#,
+        )?;
+
+        let tiles = stmt.query_map(params![z], |row| {
+            Ok(TileWithData {
+                z: row.get(0)?,
+                x: row.get(1)?,
+                y: row.get(2)?,
+                data: row.get(3)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+        Ok(tiles)
+    }
 }
 
-pub fn decode_tile(tile: TileWithData) -> Tile {
+pub fn decode_tile(tile: &TileWithData) -> Tile {
     let mut decoder = GzDecoder::new(tile.data.as_slice());
     let mut decompressed = Vec::new();
     decoder.read_to_end(&mut decompressed).unwrap();

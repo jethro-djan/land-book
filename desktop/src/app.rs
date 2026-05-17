@@ -24,11 +24,12 @@ pub fn new() -> App {
 
     let mut map_state = map::Map {
         db,
+        zoom: 14,
         extent: 4096.0,
-        geometries: vec![],
+        tiles: vec![],
     };
 
-    map_state.geometries = map_state.get_geometries();
+    map_state.tiles = map_state.get_all_geometries();
 
     App {
         sidebar_state: sidebar::Sidebar {
