@@ -3,7 +3,6 @@ use iced::{Element, Task, Theme};
 
 use crate::map;
 use crate::sidebar;
-use corelib::tile_service::GeometryType;
 use corelib::tile_service::MbTiles;
 
 pub struct App {
@@ -29,7 +28,9 @@ pub fn new() -> App {
         tiles: vec![],
     };
 
-    map_state.tiles = map_state.get_all_geometries();
+    map_state.tiles = map::get_all_geometries(
+        &map_state.db, map_state.zoom
+    );
 
     App {
         sidebar_state: sidebar::Sidebar {
@@ -40,10 +41,12 @@ pub fn new() -> App {
     }
 }
 
-pub fn update(_state: &mut App, msg: Message) -> Task<Message> {
+pub fn update(state: &mut App, msg: Message) -> Task<Message> {
     match msg {
         Message::Sidebar(msg) => Task::none(),
-        Message::Map(msg) => Task::none(),
+        Message::Map(msg) => {
+            map::update(&mut state.map_state, msg).map(Message::Map)
+        },
     }
 }
 

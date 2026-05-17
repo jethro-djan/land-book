@@ -1,6 +1,6 @@
 use corelib::tile_service::{GeometryType, MbTiles, TileWithoutData, decode_tile, extract_geometries};
 use iced::{Color, Element, Length, Point, Renderer, Task, Theme};
-use iced::widget::{canvas, container, canvas::Path};
+use iced::widget::{canvas, container, canvas::Path, slider, column};
 
 pub struct TileGeometries {
     pub tile_x: u32,
@@ -16,22 +16,6 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn get_all_geometries(&self) -> Vec<TileGeometries> {
-        self.db.get_tiles_at_zoom(self.zoom)
-            .unwrap()
-            .iter()
-            .filter_map(|tile| {
-                let (tx, ty) = (tile.x, tile.y);
-                let decoded = decode_tile(&tile);
-                let geometries = extract_geometries(decoded);
-                if geometries.is_empty() {
-                    None 
-                } else {
-                    Some(TileGeometries { tile_x: tx, tile_y: ty, geometries })
-                }
-            })
-            .collect()
-    }
 
     pub fn draw_points(
         &self, 
@@ -104,31 +88,56 @@ impl<Message> canvas::Program<Message> for Map {
             }
         }
 
-        println!("tile_count_x: {}, tile_count_y: {}", tile_count_x, tile_count_y);
-        println!("tile_pixel_size: {}", tile_pixel_size);
-        println!("bounds: {:?}", bounds);
-
         vec![frame.into_geometry()]
     }
 }
 
+
+pub fn get_all_geometries(db: &MbTiles, zoom: u32) -> Vec<TileGeometries> {
+    db.get_tiles_at_zoom(zoom)
+        .unwrap()
+        .iter()
+        .filter_map(|tile| {
+            let (tx, ty) = (tile.x, tile.y);
+            let decoded = decode_tile(&tile);
+            let geometries = extract_geometries(decoded);
+            if geometries.is_empty() {
+                None 
+            } else {
+                Some(TileGeometries { tile_x: tx, tile_y: ty, geometries })
+            }
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
+    ZoomLevelChanged(u32),
     Pan,
     Zoom,
 }
 
 pub fn update(state: &mut Map, msg: Message) -> Task<Message> {
     match msg {
+        Message::ZoomLevelChanged(zoom) => {
+            state.zoom = zoom;
+            state.tiles = get_all_geometries(&state.db, zoom);
+            Task::none()
+        }
         Message::Pan => Task::none(),
         Message::Zoom => Task::none(),
     }
 }
 
 pub fn view(state: &Map) -> Element<'_, Message> {
-    container(canvas(state).width(Length::Fill).height(Length::Fill))
+    container(
+        column![
+            canvas(state).width(Length::Fill).height(Length::Fill),
+            slider(1..=14, state.zoom, Message::ZoomLevelChanged).step(1 as u32),
+        ]
+    )
         .center(Length::Fill)
-        .padding(20.0)
+        .padding(30.0)
         .style(|_theme: &Theme| container::Style {
             background: Some(iced::Background::Color(Color::WHITE)),
             ..Default::default()
