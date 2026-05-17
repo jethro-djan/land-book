@@ -16,6 +16,9 @@ pub struct Map {
     pub extent: f32,
     pub zoom: u32,
     pub offset: Vector,
+    pub center_tile: (u32, u32),
+    pub window_radius: u32,
+    pub cached_tile_pixel_size: std::cell::Cell<f32>,
 }
 
 #[derive(Default)]
@@ -34,10 +37,14 @@ impl Map {
         min_ty: u32,
         tile_pixel_size: f32,
     ) {
+        let tile_dx = tile_x as i64 - min_tx as i64;
+        let tile_dy = tile_y as i64 - min_ty as i64;
+
         for &(lx, ly) in points {
-            let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+            let gx = tile_dx as f32 * tile_pixel_size
                 + (lx as f32 / self.extent * tile_pixel_size);
-            let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+
+            let gy = tile_dy as f32 * tile_pixel_size
                 + (ly as f32 / self.extent * tile_pixel_size);
 
             let pt = Point::new(gx, gy);
@@ -46,6 +53,34 @@ impl Map {
             frame.fill(&circle, Color::BLACK);
         }
     }
+
+    // pub fn draw_points(
+    //     &self,
+    //     frame: &mut canvas::Frame<Renderer>,
+    //     points: &[(i32, i32)],
+    //     tile_x: u32,
+    //     tile_y: u32,
+    //     min_tx: u32,
+    //     min_ty: u32,
+    //     tile_pixel_size: f32,
+    // ) {
+    //     for &(lx, ly) in points {
+    //     let gx = (tile_x as i64 - min_tx as i64) as f32 * tile_pixel_size
+    //         + (lx as f32 / self.extent * tile_pixel_size);
+
+    //     let gy = (tile_y as i64 - min_ty as i64) as f32 * tile_pixel_size
+    //         + (ly as f32 / self.extent * tile_pixel_size);
+    //         // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+    //         //     + (lx as f32 / self.extent * tile_pixel_size);
+    //         // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+    //         //     + (ly as f32 / self.extent * tile_pixel_size);
+
+    //         let pt = Point::new(gx, gy);
+
+    //         let circle = Path::circle(pt, 2.0);
+    //         frame.fill(&circle, Color::BLACK);
+    //     }
+    // }
 
     pub fn draw_lines(
         &self,
@@ -57,22 +92,37 @@ impl Map {
         min_ty: u32,
         tile_pixel_size: f32,
     ) {
+        let tile_dx = tile_x as i64 - min_tx as i64;
+        let tile_dy = tile_y as i64 - min_ty as i64;
+
         for line in lines {
             let mut builder = canvas::path::Builder::new();
             let mut points = line.iter();
 
             if let Some(&first) = points.next() {
-                let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                let gx = tile_dx as f32 * tile_pixel_size
                     + (first.0 as f32 / self.extent * tile_pixel_size);
-                let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+
+                let gy = tile_dy as f32 * tile_pixel_size
                     + (first.1 as f32 / self.extent * tile_pixel_size);
+
+                // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                //     + (first.0 as f32 / self.extent * tile_pixel_size);
+                // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                //     + (first.1 as f32 / self.extent * tile_pixel_size);
                 builder.move_to(Point::new(gx, gy));
 
                 for &point in points {
-                    let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                    let gx = tile_dx as f32 * tile_pixel_size
                         + (point.0 as f32 / self.extent * tile_pixel_size);
-                    let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+
+                    let gy = tile_dy as f32 * tile_pixel_size
                         + (point.1 as f32 / self.extent * tile_pixel_size);
+
+                    // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                    //     + (point.0 as f32 / self.extent * tile_pixel_size);
+                    // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                    //     + (point.1 as f32 / self.extent * tile_pixel_size);
                     builder.line_to(Point::new(gx, gy));
                 }
             }
@@ -97,22 +147,37 @@ impl Map {
         min_ty: u32,
         tile_pixel_size: f32,
     ) {
+        let tile_dx = tile_x as i64 - min_tx as i64;
+        let tile_dy = tile_y as i64 - min_ty as i64;
+
         for ring in rings {
             let mut builder = canvas::path::Builder::new();
             let mut points = ring.iter();
 
             if let Some(&first) = points.next() {
-                let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                let gx = tile_dx as f32 * tile_pixel_size
                     + (first.0 as f32 / self.extent * tile_pixel_size);
-                let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+
+                let gy = tile_dy as f32 * tile_pixel_size
                     + (first.1 as f32 / self.extent * tile_pixel_size);
+
+                // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                //     + (first.0 as f32 / self.extent * tile_pixel_size);
+                // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                //     + (first.1 as f32 / self.extent * tile_pixel_size);
                 builder.move_to(Point::new(gx, gy));
 
                 for &point in points {
-                    let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                    let gx = tile_dx as f32 * tile_pixel_size
                         + (point.0 as f32 / self.extent * tile_pixel_size);
-                    let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+
+                    let gy = tile_dy as f32 * tile_pixel_size
                         + (point.1 as f32 / self.extent * tile_pixel_size);
+
+                    // let gx = (tile_x - min_tx) as f32 * tile_pixel_size
+                    //     + (point.0 as f32 / self.extent * tile_pixel_size);
+                    // let gy = (tile_y - min_ty) as f32 * tile_pixel_size
+                    //     + (point.1 as f32 / self.extent * tile_pixel_size);
                     builder.line_to(Point::new(gx, gy));
                 }
 
@@ -149,15 +214,23 @@ impl canvas::Program<Message> for Map {
             return vec![frame.into_geometry()];
         }
 
-        let min_tx = self.tiles.iter().map(|t| t.tile_x).min().unwrap();
+        let min_tx = self.center_tile.0.saturating_sub(self.window_radius);
+        let min_ty = self.center_tile.1.saturating_sub(self.window_radius);
+
+        // let min_tx = self.tiles.iter().map(|t| t.tile_x).min().unwrap();
         let max_tx = self.tiles.iter().map(|t| t.tile_x).max().unwrap();
-        let min_ty = self.tiles.iter().map(|t| t.tile_y).min().unwrap();
+        // let min_ty = self.tiles.iter().map(|t| t.tile_y).min().unwrap();
         let max_ty = self.tiles.iter().map(|t| t.tile_y).max().unwrap();
 
-        let tile_count_x = (max_tx - min_tx + 1) as f32;
-        let tile_count_y = (max_ty - min_ty + 1) as f32;
+        let tile_count_x = (self.window_radius * 2 + 1) as f32;
+        let tile_count_y = (self.window_radius * 2 + 1) as f32;
 
-        let tile_pixel_size = (bounds.width / tile_count_x).min(bounds.height / tile_count_y);
+        // let tile_count_x = (max_tx - min_tx + 1) as f32;
+        // let tile_count_y = (max_ty - min_ty + 1) as f32;
+
+        let tile_pixel_size = 
+            (bounds.width / tile_count_x).min(bounds.height / tile_count_y);
+        self.cached_tile_pixel_size.set(tile_pixel_size);
 
         frame.translate(self.offset);
 
@@ -231,7 +304,7 @@ impl canvas::Program<Message> for Map {
                 }
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                state.dragging = Some(cursor_position);
+                state.dragging = None;
                 None
             }
             _ => None,
@@ -273,6 +346,55 @@ pub fn get_all_geometries(db: &MbTiles, zoom: u32) -> Vec<TileGeometries> {
         .collect()
 }
 
+pub fn load_window(
+    db: &MbTiles, 
+    zoom: u32, 
+    center: (u32, u32), 
+    radius: u32,
+) -> Vec<TileGeometries> {
+    let (cx, cy) = center;
+    let x_min = cx.saturating_sub(radius);
+    let x_max = cx + radius;
+    let y_min = cy.saturating_sub(radius);
+    let y_max = cy + radius;
+
+    db.get_tiles_in_range(zoom, x_min, x_max, y_min, y_max)
+        .unwrap()
+        .iter()
+        .filter_map(|tile| {
+            let (tx, ty) = (tile.x, tile.y);
+            let decoded = decode_tile(&tile);
+            let geometries = extract_geometries(decoded);
+            if geometries.is_empty() {
+                None
+            } else {
+                Some(TileGeometries { tile_x: tx, tile_y: ty, geometries })
+            }
+        })
+        .collect()
+}
+
+pub fn center_existing_tile_at_zoom(db: &MbTiles, zoom: u32) -> Option<(u32, u32)> {
+    let tiles = db.get_tiles_at_zoom(zoom).ok()?;
+
+    let min_x = tiles.iter().map(|t| t.x).min()?;
+    let max_x = tiles.iter().map(|t| t.x).max()?;
+    let min_y = tiles.iter().map(|t| t.y).min()?;
+    let max_y = tiles.iter().map(|t| t.y).max()?;
+
+    let target_x = min_x + (max_x - min_x) / 2;
+    let target_y = min_y + (max_y - min_y) / 2;
+
+    tiles
+        .iter()
+        .min_by_key(|t| {
+            let dx = t.x as i64 - target_x as i64;
+            let dy = t.y as i64 - target_y as i64;
+            dx * dx + dy * dy
+        })
+        .map(|t| (t.x, t.y))
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     ZoomLevelChanged(u32),
@@ -283,14 +405,54 @@ pub fn update(state: &mut Map, msg: Message) -> Task<Message> {
     match msg {
         Message::ZoomLevelChanged(zoom) => {
             state.zoom = zoom;
-            state.tiles = get_all_geometries(&state.db, zoom);
+            // state.tiles = get_all_geometries(&state.db, zoom);
 
             state.offset = Vector::new(0.0, 0.0);
+
+            state.center_tile = center_existing_tile_at_zoom(&state.db, zoom)
+                .unwrap_or(state.center_tile);
+
+            state.tiles = load_window(
+                &state.db, 
+                state.zoom, 
+                state.center_tile, 
+                state.window_radius,
+            );
+
             Task::none()
         }
         Message::Panned(delta) => {
-            state.offset.x = delta.x;
-            state.offset.y = delta.y;
+            state.offset.x += delta.x;
+            state.offset.y += delta.y;
+
+            let tile_px = &state.cached_tile_pixel_size;
+
+            let mut shifted = false;
+
+            if state.offset.x > tile_px.get() {
+                state.center_tile.0 = state.center_tile.0.saturating_sub(1);
+                state.offset.x -= tile_px.get();
+                shifted = true
+            } else if state.offset.x < -tile_px.get() {
+                state.center_tile.0 += 1;
+                state.offset.x += tile_px.get();
+                shifted = true;
+            }
+
+            if state.offset.y > tile_px.get() {
+                state.center_tile.1 = state.center_tile.1.saturating_sub(1);
+                state.offset.y -= tile_px.get();
+                shifted = true;
+            } else if state.offset.y < -tile_px.get() {
+                state.center_tile.1 += 1;
+                state.offset.y += tile_px.get();
+                shifted = true;
+            }
+
+            if shifted {
+                state.tiles =
+                load_window(&state.db, state.zoom, state.center_tile, state.window_radius);
+            }
             Task::none()
         }
     }

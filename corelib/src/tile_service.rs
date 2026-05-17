@@ -113,6 +113,39 @@ impl MbTiles {
 
         Ok(tiles)
     }
+
+    pub fn get_tiles_in_range(
+        &self,
+        z: u32,
+        x_min: u32,
+        x_max: u32,
+        y_min: u32,
+        y_max: u32,
+    ) -> Result<Vec<TileWithData>> {
+        let mut stmt = self.conn.prepare_cached(
+            r#"SELECT zoom_level, tile_column, tile_row, tile_data 
+                FROM tiles
+                WHERE zoom_level = ?1
+                AND tile_column BETWEEN ?2 AND ?3
+                AND tile_row BETWEEN ?4 AND ?5
+            "#,
+        )?;
+
+        let tiles = stmt
+            .query_map(params![z, x_min, x_max, y_min, y_max], |row| {
+                Ok(TileWithData {
+                    z: row.get(0)?,
+                    x: row.get(1)?,
+                    y: row.get(2)?,
+                    data: row.get(3)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(tiles)
+    }
+
 }
 
 pub fn decode_tile(tile: &TileWithData) -> Tile {

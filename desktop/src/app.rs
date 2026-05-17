@@ -23,15 +23,25 @@ pub fn new() -> App {
     ))
     .expect("Failed to open .mbtiles database");
 
-    let mut map_state = map::Map {
+    let zoom = 14;
+    let window_radius = 3u32;
+    let center_tile = map::center_existing_tile_at_zoom(&db, zoom)
+        .expect("No tiles found at starting point");
+
+    let tiles = map::load_window(&db, zoom, center_tile, window_radius);
+
+    let map_state = map::Map {
         db,
         zoom: 14,
         extent: 4096.0,
-        tiles: vec![],
+        tiles,
         offset: Vector::new(0.0, 0.0),
+        center_tile: center_tile,
+        window_radius,
+        cached_tile_pixel_size: std::cell::Cell::new(0.0),
     };
 
-    map_state.tiles = map::get_all_geometries(&map_state.db, map_state.zoom);
+    // map_state.tiles = map::load_window(&map_state.db, map_state.zoom, center_tile, window_radius);
 
     App {
         sidebar_state: sidebar::Sidebar {
